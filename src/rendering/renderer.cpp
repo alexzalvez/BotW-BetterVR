@@ -903,7 +903,26 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
         m_gazeUnlockCounter = 0;
     }
 
-    if (GetSettings().DoesUIFollowGaze() || isBowAiming) {
+    const bool isMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
+    static bool s_wasMenuOpen = false;
+    static XrPosef s_latchedMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
+
+    if (isMenuOpen) {
+        if (!s_wasMenuOpen) {
+            // Flanco de apertura: Capturamos la orientación horizontal pura (Yaw-Only)
+            // RenderUtils::swingTwistY elimina cualquier inclinación lateral (roll) de la cabeza
+            auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
+            glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
+            glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
+
+            // Fijamos la posición y rotación en coordenadas del mundo real
+            s_latchedMenuPose.position = ToXR(targetPosition);
+            s_latchedMenuPose.orientation = ToXR(yawOnly);
+        }
+        // Mientras el menú esté abierto: La pose queda 100% INMÓVIL en el espacio virtual
+        layerPose = s_latchedMenuPose;
+    }
+    else if (GetSettings().DoesUIFollowGaze() || isBowAiming) {
         m_currentOrientation = glm::slerp(m_currentOrientation, headOrientation, LERP_SPEED);
         glm::vec3 forwardDirection = m_isGazeLocked ? m_lockedGazeForward : headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
 
@@ -925,6 +944,7 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
         layerPose.position.z -= DISTANCE;
         layerPose.orientation = { 0.0f, 0.0f, 0.0f, 1.0f };
     }
+    s_wasMenuOpen = isMenuOpen;
 
     //const float aspectRatio = (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Width / (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Height;
     const float aspectRatio = 16.0f / 9.0f;
