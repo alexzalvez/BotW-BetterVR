@@ -903,57 +903,94 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
     const bool wasBowAimingSet = IsBowAimingActive();
     const bool isBowAiming = wasBowAimingSet && inputState.shared.in_game;
 
-    // the pause menu blanks briefly between tabs, so only unlock after it stays closed
+    // Función auxiliar local para detectar cualquier menú o inventario nativo de BotW
+    auto isAnyGameMenuScreenOpen = []() -> bool {
+        return CemuHooks::IsScreenOpen(ScreenId::PauseMenu_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::PauseMenuRecipe_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::PauseMenuMantan_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::PauseMenuEiketsu_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::SeekPadMenuBG_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppMap_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppMapDungeon_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppAlbum_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppPictureBook_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppTool_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppHome_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopBG_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopHorse_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::OptionWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::SystemWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::SystemWindow_01) ||
+               CemuHooks::IsScreenOpen(ScreenId::MainShortCut_00);
+    };
+
+    // Amortiguador de 5 fotogramas para que no parpadee al cambiar de pestaña
     constexpr uint32_t GAZE_UNLOCK_FRAMES = 5;
-    if (CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00)) {
-        m_gazeUnlockCounter = 0;
-        if (!m_isGazeLocked) {
-            m_isGazeLocked = true;
-            m_lockedGazeForward = GetHorizontalGazeDirection(headOrientation);
+    const bool isGameMenuOpen = isAnyGameMenuScreenOpen();
+    static uint32_t s_gameMenuUnlockCounter = 0;
+    static bool s_isGameMenuLatched = false;
+    static XrPosef s_latchedGameMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
+
+    if (isGameMenuOpen) {
+        s_gameMenuUnlockCounter = 0;
+        if (!s_isGameMenuLatched) {
+            // Fotograma de apertura: anclamos la pose al mundo frente al usuario (solo rotación yaw)
+            s_isGameMenuLatched = true;
+            auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
+            glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
+            glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
+            s_latchedGameMenuPose.position = ToXR(targetPosition);
+            s_latchedGameMenuPose.orientation = ToXR(yawOnly);
         }
     }
-    else if (m_isGazeLocked && ++m_gazeUnlockCounter >= GAZE_UNLOCK_FRAMES) {
-        m_isGazeLocked = false;
-        m_gazeUnlockCounter = 0;
+    else if (s_isGameMenuLatched && ++s_gameMenuUnlockCounter >= GAZE_UNLOCK_FRAMES) {
+        // El menú se cerró definitivamente
+        s_isGameMenuLatched = false;
+        s_gameMenuUnlockCounter = 0;
     }
 
     const bool isMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
     static bool s_wasMenuOpen = false;
     static XrPosef s_latchedMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
 
+    // --- JERARQUÍA ESTRICTA DE RENDERIZADO 2D ---
     if (isMenuOpen) {
+        // 1. Menú ImGui del Mod VR (prioridad absoluta)
         if (!s_wasMenuOpen) {
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
             glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
-
             s_latchedMenuPose.position = ToXR(targetPosition);
             s_latchedMenuPose.orientation = ToXR(yawOnly);
         }
         layerPose = s_latchedMenuPose;
     }
+    else if (s_isGameMenuLatched) {
+        // 2. Menús e Inventarios de BotW (fijos en el mundo mientras estén abiertos)
+        layerPose = s_latchedGameMenuPose;
+    }
     else if (GetSettings().DoesUIFollowGaze() || isBowAiming) {
+        // 3. Gameplay normal: HUD que acompaña suavemente la mirada o al apuntar con arco
         m_currentOrientation = glm::slerp(m_currentOrientation, headOrientation, LERP_SPEED);
-        glm::vec3 forwardDirection = m_isGazeLocked ? m_lockedGazeForward : headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 forwardDirection = headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
 
-        // calculate new position forwards
         glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
-
-        // calculate rightward direction
         glm::vec3 rightDirection = glm::normalize(glm::cross(forwardDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
-
-        // recalculate up direction using right and forward direction
         glm::vec3 upDirection = glm::cross(rightDirection, forwardDirection);
+
         glm::quat userFacingOrientation = glm::quatLookAt(forwardDirection, upDirection);
 
         layerPose.orientation = ToXR(userFacingOrientation);
         layerPose.position = ToXR(targetPosition);
     }
     else {
+        // 4. Modo HUD fijo a la cámara HMD estándar
         layerPose.position = ToXR(headPosition);
         layerPose.position.z -= DISTANCE;
         layerPose.orientation = { 0.0f, 0.0f, 0.0f, 1.0f };
     }
+
     s_wasMenuOpen = isMenuOpen;
 
     //const float aspectRatio = (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Width / (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Height;

@@ -18,6 +18,7 @@ void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
     hCPU->instructionPointer = hCPU->sprNew.LR;
 
     const bool trackActors = GetSettings().enableDebuggerTools.load(std::memory_order_relaxed);
+    static std::atomic<bool> s_hasKnownActors{false};
 
     // =========================================================================
     // RUTA DE DEPURACIÓN (Solo activa si se abre el menú de herramientas ImGui)
@@ -27,6 +28,7 @@ void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
 
         if (hCPU->gpr[5] == 0) {
             s_knownActors.clear();
+            s_hasKnownActors.store(false, std::memory_order_relaxed);
         }
 
         uint32_t actorLinkPtr = hCPU->gpr[6] + offsetof(ActorWiiU, name) + offsetof(sead::FixedSafeString40, c_str);
@@ -39,6 +41,7 @@ void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
         if (actorName[0] != '\0') {
             uint32_t actorId = hCPU->gpr[6] + stringToHash(actorName);
             s_knownActors.emplace(actorId, std::make_pair(actorName, hCPU->gpr[6]));
+            s_hasKnownActors.store(true, std::memory_order_relaxed);
         }
 
         if (actorName[0] == 'G') {
@@ -60,16 +63,12 @@ void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
 
     // =========================================================================
     // FAST-PATH DE JUEGO (trackActors == false, 99.99% del tiempo de juego)
-    // CERO contención de mutex, descarte en 1 nanosegundo por byte.
+    // CERO contención de mutex: solo bloquea si veníamos de depurar y hay datos pendientes.
     // =========================================================================
-
-    // Si veníamos de tener las herramientas encendidas y se acaban de apagar,
-    // limpiamos el mapa una sola vez en el primer actor (índice 0).
-    if (hCPU->gpr[5] == 0) {
+    if (hCPU->gpr[5] == 0 && s_hasKnownActors.load(std::memory_order_relaxed)) {
         std::scoped_lock lock(g_actorListMutex);
-        if (!s_knownActors.empty()) {
-            s_knownActors.clear();
-        }
+        s_knownActors.clear();
+        s_hasKnownActors.store(false, std::memory_order_relaxed);
     }
 
     // Leer el puntero al nombre del actor inspeccionado
