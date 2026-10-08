@@ -903,8 +903,9 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
     const bool wasBowAimingSet = IsBowAimingActive();
     const bool isBowAiming = wasBowAimingSet && inputState.shared.in_game;
 
-    // Función auxiliar local para detectar cualquier menú o inventario nativo de BotW
+// Función auxiliar local para detectar cualquier menú, inventario o modal nativo de BotW
     auto isAnyGameMenuScreenOpen = []() -> bool {
+        // Pantallas modales, menús de pausa e inventarios de BotW
         return CemuHooks::IsScreenOpen(ScreenId::PauseMenu_00) ||
                CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
                CemuHooks::IsScreenOpen(ScreenId::PauseMenuRecipe_00) ||
@@ -919,23 +920,40 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
                CemuHooks::IsScreenOpen(ScreenId::AppHome_00) ||
                CemuHooks::IsScreenOpen(ScreenId::ShopBG_00) ||
                CemuHooks::IsScreenOpen(ScreenId::ShopHorse_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopBtnList5_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopBtnList20_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopBtnList15_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ShopInfo_00) ||
                CemuHooks::IsScreenOpen(ScreenId::OptionWindow_00) ||
                CemuHooks::IsScreenOpen(ScreenId::SystemWindow_00) ||
                CemuHooks::IsScreenOpen(ScreenId::SystemWindow_01) ||
+               CemuHooks::IsScreenOpen(ScreenId::SystemWindowNoBtn_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppSystemWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AppSystemWindowNoBtn_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ControllerWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::ChangeController_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::SaveTransferWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::AmiiboWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::DLCWindow_00) ||
+               CemuHooks::IsScreenOpen(ScreenId::MessageDialog) ||
+               CemuHooks::IsScreenOpen(ScreenId::GameOver_00) ||
                CemuHooks::IsScreenOpen(ScreenId::MainShortCut_00);
     };
 
-    // Amortiguador de 5 fotogramas para que no parpadee al cambiar de pestaña
-    constexpr uint32_t GAZE_UNLOCK_FRAMES = 5;
+    // Amortiguador de 8 fotogramas para transiciones entre pestañas de inventario/mapa
+    constexpr uint32_t GAZE_UNLOCK_FRAMES = 8;
     const bool isGameMenuOpen = isAnyGameMenuScreenOpen();
     static uint32_t s_gameMenuUnlockCounter = 0;
     static bool s_isGameMenuLatched = false;
     static XrPosef s_latchedGameMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
 
+    // Atajo opcional de recentrado en caliente (tecla F9 en teclado)
+    const bool forceRecenter = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+
     if (isGameMenuOpen) {
         s_gameMenuUnlockCounter = 0;
-        if (!s_isGameMenuLatched) {
-            // Fotograma de apertura: anclamos la pose al mundo frente al usuario (solo rotación yaw)
+        if (!s_isGameMenuLatched || forceRecenter) {
+            // Fotograma 0: anclaje instantáneo en el espacio virtual frente a los ojos (solo Yaw)
             s_isGameMenuLatched = true;
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
@@ -945,7 +963,7 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
         }
     }
     else if (s_isGameMenuLatched && ++s_gameMenuUnlockCounter >= GAZE_UNLOCK_FRAMES) {
-        // El menú se cerró definitivamente
+        // Menú cerrado de forma definitiva: liberamos el anclaje
         s_isGameMenuLatched = false;
         s_gameMenuUnlockCounter = 0;
     }
@@ -956,8 +974,8 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
 
     // --- JERARQUÍA ESTRICTA DE RENDERIZADO 2D ---
     if (isMenuOpen) {
-        // 1. Menú ImGui del Mod VR (prioridad absoluta)
-        if (!s_wasMenuOpen) {
+        // 1. Menú ImGui del Mod VR (prioridad absoluta, anclado en mundo)
+        if (!s_wasMenuOpen || forceRecenter) {
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
             glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
@@ -967,28 +985,26 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
         layerPose = s_latchedMenuPose;
     }
     else if (s_isGameMenuLatched) {
-        // 2. Menús e Inventarios de BotW (fijos en el mundo mientras estén abiertos)
+        // 2. Menús e Inventarios nativos de BotW (anclados en mundo con swingTwistY)
         layerPose = s_latchedGameMenuPose;
     }
     else if (GetSettings().DoesUIFollowGaze() || isBowAiming) {
-        // 3. Gameplay normal: HUD que acompaña suavemente la mirada o al apuntar con arco
+        // 3. Gameplay normal: HUD dinámico que sigue suavemente la mirada o al apuntar con arco
         m_currentOrientation = glm::slerp(m_currentOrientation, headOrientation, LERP_SPEED);
         glm::vec3 forwardDirection = headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
-
         glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
         glm::vec3 rightDirection = glm::normalize(glm::cross(forwardDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
         glm::vec3 upDirection = glm::cross(rightDirection, forwardDirection);
-
         glm::quat userFacingOrientation = glm::quatLookAt(forwardDirection, upDirection);
 
         layerPose.orientation = ToXR(userFacingOrientation);
         layerPose.position = ToXR(targetPosition);
     }
     else {
-        // 4. Modo HUD fijo a la cámara HMD estándar
-        layerPose.position = ToXR(headPosition);
-        layerPose.position.z -= DISTANCE;
-        layerPose.orientation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        // 4. Gameplay normal: HUD fijo al HMD sin paralaje invertido
+        glm::vec3 forwardDirection = headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
+        layerPose.position = ToXR(headPosition + (DISTANCE * forwardDirection));
+        layerPose.orientation = ToXR(headOrientation);
     }
 
     s_wasMenuOpen = isMenuOpen;
