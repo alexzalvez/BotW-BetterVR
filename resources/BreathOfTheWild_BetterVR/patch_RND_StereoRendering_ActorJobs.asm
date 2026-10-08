@@ -529,17 +529,7 @@ lis r4, strActor_job0_1@ha
 addi r4, r4, strActor_job0_1@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_job0_1@ha
-addi r12, r12, stub_routeActorJob_job0_1@l
-beq routeActorJob_job0_1
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job0_1:
-mtctr r12
-bctrl
+bl stub_routeActorJob_job0_1
 
 cmpwi r3, 0
 beq job0_1_normal
@@ -634,17 +624,7 @@ lis r4, strActor_job0_2@ha
 addi r4, r4, strActor_job0_2@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job0_2
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job0_2:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job0_2
@@ -687,17 +667,7 @@ lis r4, strActor_job1_1@ha
 addi r4, r4, strActor_job1_1@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job1_1
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job1_1:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job1_1
@@ -743,17 +713,7 @@ lis r4, strActor_job1_2@ha
 addi r4, r4, strActor_job1_2@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job1_2
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job1_2:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job1_2
@@ -798,17 +758,7 @@ lis r4, strActor_job2_1@ha
 addi r4, r4, strActor_job2_1@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job2_1
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job2_1:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job2_1
@@ -853,17 +803,7 @@ lis r4, strActor_job2_2@ha
 addi r4, r4, strActor_job2_2@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job2_2
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job2_2:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job2_2
@@ -908,17 +848,7 @@ lis r4, strActor_job4@ha
 addi r4, r4, strActor_job4@l
 lis r5, currentEyeSide@ha
 lwz r5, currentEyeSide@l(r5)
-lis r12, useStubHooks@ha
-lwz r12, useStubHooks@l(r12)
-cmpwi r12, 1
-lis r12, stub_routeActorJob_skipRight@ha
-addi r12, r12, stub_routeActorJob_skipRight@l
-beq routeActorJob_job4
-lis r12, import.coreinit.hook_RouteActorJob@ha
-addi r12, r12, import.coreinit.hook_RouteActorJob@l
-routeActorJob_job4:
-mtctr r12
-bctrl
+bl stub_routeActorJob_skipRight
 
 cmpwi r3, 1
 beq finish_hook_actor_job4

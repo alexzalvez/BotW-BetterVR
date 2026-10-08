@@ -212,83 +212,43 @@ void CemuHooks::hook_OSReportToConsole(PPCInterpreter_t* hCPU) {
 constexpr uint32_t playerVtable = 0x101E5FFC;
 void CemuHooks::hook_RouteActorJob(PPCInterpreter_t* hCPU) {
     hCPU->instructionPointer = hCPU->sprNew.LR;
+    const uint32_t actorPtr = hCPU->gpr[3];
+    const uint32_t jobName  = hCPU->gpr[4];
+    const uint32_t side     = hCPU->gpr[5]; // 0 = left, 1 = right
 
-    uint32_t actorPtr = hCPU->gpr[3];
-    uint32_t jobName = hCPU->gpr[4];
-    uint32_t side = hCPU->gpr[5]; // 0 = left, 1 = right
-
-    std::string jobNameStr = std::string((char*)(s_memoryBaseAddress + jobName));
-
-    ActorWiiU actor;
-    readMemory(actorPtr, &actor);
-    std::string actorName = actor.name.getLE();
-
-#define SKIP_ON_LEFT_SIDE if (side == 0) { hCPU->gpr[3] = 1; }
-#define SKIP_ON_RIGHT_SIDE if (side == 1) { hCPU->gpr[3] = 1; }
-#define USE_ALTERED_PATH_ON_LEFT_SIDE if (side == 0) { hCPU->gpr[3] = 2; }
-#define USE_ALTERED_PATH_ON_RIGHT_SIDE if (side == 1) { hCPU->gpr[3] = 2; }
-
+    // Valor de retorno por defecto en r3: 0 = perform job
     hCPU->gpr[3] = 0;
-    if (actorName == "GameROMPlayer") {
-        if (jobNameStr == "job0_1") {
-            // this only runs the climbing portion of this actor job on the left eye's side
-            // so that later jobs on the left side can use the state set by this portion of code
-            USE_ALTERED_PATH_ON_LEFT_SIDE
-        }
-        else if (jobNameStr == "job0_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job1_1") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job1_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job2_1_ragdoll_related") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job2_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job4") {
-            SKIP_ON_RIGHT_SIDE
-        }
-    }
-    else {
-        if (jobNameStr == "job0_1") {
-            SKIP_ON_LEFT_SIDE
-        }
-        else if (jobNameStr == "job0_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job1_1") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job1_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job2_1_ragdoll_related") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job2_2") {
-            SKIP_ON_RIGHT_SIDE
-        }
-        else if (jobNameStr == "job4") {
-            SKIP_ON_RIGHT_SIDE
-        }
+
+    if (jobName == 0) {
+        return;
     }
 
-    if (hCPU->gpr[3] == 0) {
-        //Log::print<INFO>("[{}] Ran {}", actorName, jobNameStr);
-    }
-    else if (hCPU->gpr[3] == 2) {
-        //Log::print<INFO>("[{}] Ran ALTERED VERSION of {}", actorName, jobNameStr);
+    const char* jobNameStr = (const char*)(s_memoryBaseAddress + jobName);
+    if (!jobNameStr) {
+        return;
     }
 
-    // exit r3:
-    // 1 = skip job
-    // 0 = perform job
-    // 2 = altered job
+    // Comprobación segura de cadenas sin riesgo de lectura fuera de rango
+    if (std::strcmp(jobNameStr, "job0_1") == 0) {
+        if (side == 0) {
+            // Leemos únicamente los 4 bytes de la vtable en el offset 0xE8
+            // (evita copiar los 1.340 bytes de ActorWiiU a la pila)
+            uint32_t vtable = 0;
+            readMemoryBE(actorPtr + 0xE8, &vtable);
+
+            if (vtable == playerVtable) {
+                hCPU->gpr[3] = 2; // altered path en ojo izquierdo solo para el Player
+            } else {
+                hCPU->gpr[3] = 1; // skip en ojo izquierdo para el resto de entidades
+            }
+        }
+    } else {
+        // Para el resto de jobs (job0_2, job1_1, job1_2, job2_1_ragdoll_related, job2_2, job4)
+        // se omiten en el ojo derecho
+        if (side == 1) {
+            hCPU->gpr[3] = 1; // skip job en ojo derecho
+        }
+    }
 }
 
 // todo: this only runs when it's shown for the first time!
