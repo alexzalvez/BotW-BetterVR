@@ -237,10 +237,10 @@ void RND_Renderer::FramePumpLoop() {
             waitEnd.time_since_epoch()
         ).count());
 
-        // En SSW de Virtual Desktop, la cadencia es exactamente el doble del intervalo del visor (relación 1:2)
+        // Virtual Desktop con SSW ya entrega el periodo de trabajo objetivo. Tomamos la referencia base directa sin multiplicar por 2.
         if (frameState.predictedDisplayPeriod > 0) {
-            const uint64_t sswCadenceNs = static_cast<uint64_t>(frameState.predictedDisplayPeriod) * 2ULL;
-            s_syncTargetDisplayPeriodNs.store(sswCadenceNs, std::memory_order_relaxed);
+            const uint64_t basePeriodNs = static_cast<uint64_t>(frameState.predictedDisplayPeriod);
+            s_syncTargetDisplayPeriodNs.store(basePeriodNs, std::memory_order_relaxed);
             s_lastWaitFrameTimestampNs.store(waitEndNs, std::memory_order_release);
         }
 

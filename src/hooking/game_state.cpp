@@ -174,67 +174,73 @@ bool CemuHooks::IsTitleScreenVisible() {
 constexpr double WiiUTimerTicksPerSecond = 62156250.0;
 
 // =========================================================================================
-// CONFIGURACIÓN DE CADENCIA VR (VIRTUAL DESKTOP SSW):
+// CONFIGURACIÓN DE CADENCIA VR ESTRICTA (HARD CEILING -0.1 FPS):
 //
-// kCadenceSubOffset:
-//   - Ponlo en 0.1 para sub-cadencia activa (35.9 FPS a 72Hz, 44.9 FPS a 90Hz).
-//     -> Drena la cola de la swapchain para eliminar input lag elástico.
-//   - Ponlo en 0.0 para ratio 1:2 exacto (36.0 FPS a 72Hz, 45.0 FPS a 90Hz).
-//     -> Se apoya en el Phase Lead de 2.0 ms.
+// kCadenceSubOffset = 0.1:
+//   Aplica el déficit de 0.1 FPS sobre la tasa que reporte Virtual Desktop:
+//   - Con SSW Always On a 72 Hz (VD reporta 36.0) -> Techo estricto: 35.9 FPS
+//   - Con SSW Always On a 80 Hz (VD reporta 40.0) -> Techo estricto: 39.9 FPS
+//   - Con SSW Always On a 90 Hz (VD reporta 45.0) -> Techo estricto: 44.9 FPS
+//   - Con SSW Always On a 120 Hz (VD reporta 60.0) -> Techo estricto: 59.9 FPS
+//   - Sin SSW a 72 Hz (VD reporta 72.0) -> Techo estricto: 71.9 FPS
 // =========================================================================================
-constexpr double kCadenceSubOffset = 0.1; // Alternar entre 0.1 y 0.0 para contrastar empíricamente
-constexpr int64_t kPhaseLeadNs = 2'000'000; // 2.0 ms de margen fresco (Zero-Queue Depth)
+constexpr double kCadenceSubOffset = 0.1;
 
 void CemuHooks::hook_GetFrameThrottleTicks(PPCInterpreter_t* hCPU) {
     hCPU->instructionPointer = hCPU->sprNew.LR;
 
-    // Durante pantallas de carga y títulos se respeta el comportamiento nativo
+    // Durante pantallas de carga y títulos respetamos la lógica nativa del emulador
     if (IsLoadingScreenVisible() || IsTitleScreenVisible()) {
         hCPU->gpr[3] = 0;
         return;
     }
 
-    const uint64_t sswBaseCadenceNs = RND_Renderer::GetSyncTargetPeriodNs();
-    const uint64_t lastWaitNs = RND_Renderer::GetLastWaitFrameTimestampNs();
-
-    if (sswBaseCadenceNs == 0 || lastWaitNs == 0) {
+    const uint64_t basePeriodNs = RND_Renderer::GetSyncTargetPeriodNs();
+    if (basePeriodNs == 0) {
         hCPU->gpr[3] = 0;
         return;
     }
 
-    // Calcular el periodo objetivo según kCadenceSubOffset
-    uint64_t targetPeriodNs = sswBaseCadenceNs;
-    if (kCadenceSubOffset > 0.001) {
-        const double baseHz = 2e9 / static_cast<double>(sswBaseCadenceNs); // Ej: 72.0 Hz
-        const double targetFps = (baseHz * 0.5) - kCadenceSubOffset; // Ej: 36.0 - 0.1 = 35.9 FPS
-        if (targetFps > 10.0) {
-            targetPeriodNs = static_cast<uint64_t>(1e9 / targetFps);
-        }
+    // 1. Tasa base que Virtual Desktop espera para la aplicación
+    const double baseFps = 1e9 / static_cast<double>(basePeriodNs);
+
+    // 2. Techo estricto restando 0.1 FPS
+    const double targetFps = baseFps - kCadenceSubOffset;
+    if (targetFps <= 5.0) {
+        hCPU->gpr[3] = 0;
+        return;
     }
+
+    // 3. Duración mínima obligatoria que debe durar cada cuadro
+    const auto targetInterval = std::chrono::nanoseconds(static_cast<uint64_t>(1e9 / targetFps));
 
     const auto now = std::chrono::steady_clock::now();
-    const uint64_t nowNs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-        now.time_since_epoch()
-    ).count());
+    static std::chrono::steady_clock::time_point s_lastFrameCompletedTime{};
 
-    static uint64_t s_monotoneDeadlineNs = 0;
-
-    // Plazo absoluto acoplado al visor con el adelanto de fase
-    const uint64_t targetDeadlineNs = lastWaitNs + targetPeriodNs - kPhaseLeadNs;
-
-    // Prevención de micro-ráfagas ante picos transitorios de CPU
-    if (nowNs >= targetDeadlineNs || nowNs >= s_monotoneDeadlineNs) {
-        s_monotoneDeadlineNs = nowNs + targetPeriodNs;
+    // Inicialización segura en el primer cuadro tras pantalla de carga o arranque
+    if (s_lastFrameCompletedTime.time_since_epoch().count() == 0) {
+        s_lastFrameCompletedTime = now;
         hCPU->gpr[3] = 0;
         return;
     }
 
-    const uint64_t sleepDurationNs = s_monotoneDeadlineNs - nowNs;
-    s_monotoneDeadlineNs += targetPeriodNs;
+    const auto elapsed = now - s_lastFrameCompletedTime;
 
-    // Conversión de nanosegundos a ticks de hardware de Wii U
-    constexpr double kNanosToWiiUTicks = WiiUTimerTicksPerSecond / 1e9;
-    hCPU->gpr[3] = static_cast<uint32_t>(sleepDurationNs * kNanosToWiiUTicks);
+    // 4. Mecanismo de Barrera Dura (Hard Ceiling):
+    // Si Cemu terminó antes del tiempo límite, lo forzamos a dormir la diferencia exacta.
+    if (elapsed < targetInterval) {
+        const auto sleepDuration = targetInterval - elapsed;
+        s_lastFrameCompletedTime = now + sleepDuration;
+
+        constexpr double kNanosToWiiUTicks = WiiUTimerTicksPerSecond / 1e9;
+        const auto sleepNs = std::chrono::duration_cast<std::chrono::nanoseconds>(sleepDuration).count();
+        hCPU->gpr[3] = static_cast<uint32_t>(sleepNs * kNanosToWiiUTicks);
+    } else {
+        // La CPU tardó más de la cuenta por un pico de carga:
+        // No dormimos nada y actualizamos la marca al tiempo actual sin acumular retraso
+        s_lastFrameCompletedTime = now;
+        hCPU->gpr[3] = 0;
+    }
 }
 
 void CemuHooks::initCutsceneDefaultSettings(uint32_t ppc_TableOfCutsceneEventsSettingsOffset) {
