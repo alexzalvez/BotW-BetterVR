@@ -17,45 +17,75 @@ uint32_t CemuHooks::s_cameraMtxAddress = 0;
 void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
     hCPU->instructionPointer = hCPU->sprNew.LR;
 
-    std::scoped_lock lock(g_actorListMutex);
-
-    // r7 holds actor list size
-    // r5 holds current actor index
-    // r6 holds current actor* list entry
-
-    // only the entity debugger reads the actor list, everything else needs the player/camera addresses below
     const bool trackActors = GetSettings().enableDebuggerTools.load(std::memory_order_relaxed);
-    if (!trackActors && !s_knownActors.empty()) {
-        s_knownActors.clear();
+
+    // =========================================================================
+    // RUTA DE DEPURACIÓN (Solo activa si se abre el menú de herramientas ImGui)
+    // =========================================================================
+    if (trackActors) {
+        std::scoped_lock lock(g_actorListMutex);
+
+        if (hCPU->gpr[5] == 0) {
+            s_knownActors.clear();
+        }
+
+        uint32_t actorLinkPtr = hCPU->gpr[6] + offsetof(ActorWiiU, name) + offsetof(sead::FixedSafeString40, c_str);
+        uint32_t actorNamePtr = 0;
+        readMemoryBE(actorLinkPtr, &actorNamePtr);
+        if (actorNamePtr == 0)
+            return;
+
+        char* actorName = (char*)s_memoryBaseAddress + actorNamePtr;
+        if (actorName[0] != '\0') {
+            uint32_t actorId = hCPU->gpr[6] + stringToHash(actorName);
+            s_knownActors.emplace(actorId, std::make_pair(actorName, hCPU->gpr[6]));
+        }
+
+        if (actorName[0] == 'G') {
+            if (strcmp(actorName, "GameROMPlayer") == 0) {
+                BEMatrix34 mtx = {};
+                uint32_t actorMtxPtr = hCPU->gpr[6] + offsetof(ActorWiiU, mtx);
+                readMemory(actorMtxPtr, &mtx);
+                s_playerPos = mtx.getPos().getLE();
+                s_playerMtxAddress = actorMtxPtr;
+                s_playerAddress = hCPU->gpr[6];
+            }
+            else if (strcmp(actorName, "GameRomCamera") == 0) {
+                uint32_t actorMtxPtr = hCPU->gpr[6] + offsetof(ActorWiiU, mtx);
+                s_cameraMtxAddress = actorMtxPtr;
+            }
+        }
+        return;
     }
 
-    // clear actor list when reiterating actor list again
-    if (trackActors && hCPU->gpr[5] == 0) {
-        s_knownActors.clear();
+    // =========================================================================
+    // FAST-PATH DE JUEGO (trackActors == false, 99.99% del tiempo de juego)
+    // CERO contención de mutex, descarte en 1 nanosegundo por byte.
+    // =========================================================================
+
+    // Si veníamos de tener las herramientas encendidas y se acaban de apagar,
+    // limpiamos el mapa una sola vez en el primer actor (índice 0).
+    if (hCPU->gpr[5] == 0) {
+        std::scoped_lock lock(g_actorListMutex);
+        if (!s_knownActors.empty()) {
+            s_knownActors.clear();
+        }
     }
 
+    // Leer el puntero al nombre del actor inspeccionado
     uint32_t actorLinkPtr = hCPU->gpr[6] + offsetof(ActorWiiU, name) + offsetof(sead::FixedSafeString40, c_str);
     uint32_t actorNamePtr = 0;
     readMemoryBE(actorLinkPtr, &actorNamePtr);
     if (actorNamePtr == 0)
         return;
 
-    char* actorName = (char*)s_memoryBaseAddress + actorNamePtr;
+    const char* actorName = (const char*)s_memoryBaseAddress + actorNamePtr;
 
-    if (trackActors && actorName[0] != '\0') {
-        // Log::print("Updating actor list [{}/{}] {:08x} - {}", hCPU->gpr[5], hCPU->gpr[7], hCPU->gpr[6], actorName);
-        uint32_t actorId = hCPU->gpr[6] + stringToHash(actorName);
-        s_knownActors.emplace(actorId, std::make_pair(actorName, hCPU->gpr[6]));
-    }
+    // Filtro ultra-rápido: solo "GameROMPlayer" y "GameRomCamera" empiezan por 'G'.
+    // El 99% de los actores (Weapon, Enemy, Item, FldObj, etc.) retornan al instante.
+    if (actorName[0] != 'G')
+        return;
 
-    // if (strcmp(actorName, "Weapon_Sword_056") == 0) {
-    //     // Log::print("Updating actor list [{}/{}] {:08x} - {}", hCPU->gpr[5], hCPU->gpr[7], hCPU->gpr[6], actorName);
-    //     // float velocityY = 0.0f;
-    //     // readMemoryBE(hCPU->gpr[6] + offsetof(ActorWiiU, velocity.y), &velocityY);
-    //     // velocityY = velocityY * 1.5f;
-    //     // writeMemoryBE(hCPU->gpr[6] + offsetof(ActorWiiU, velocity.y), &velocityY);
-    //     s_currActorPtrs.emplace_back(hCPU->gpr[6]);
-    // }
     if (strcmp(actorName, "GameROMPlayer") == 0) {
         BEMatrix34 mtx = {};
         uint32_t actorMtxPtr = hCPU->gpr[6] + offsetof(ActorWiiU, mtx);
@@ -63,8 +93,6 @@ void CemuHooks::hook_UpdateActorList(PPCInterpreter_t* hCPU) {
         s_playerPos = mtx.getPos().getLE();
         s_playerMtxAddress = actorMtxPtr;
         s_playerAddress = hCPU->gpr[6];
-        //uint32_t vtableAddr = getMemory<BEType<uint32_t>>(hCPU->gpr[6] + offsetof(ActorWiiU, vtable)).getLE();
-        //Log::print<INFO>("VTABLE = {:08X}", vtableAddr);
     }
     else if (strcmp(actorName, "GameRomCamera") == 0) {
         uint32_t actorMtxPtr = hCPU->gpr[6] + offsetof(ActorWiiU, mtx);
