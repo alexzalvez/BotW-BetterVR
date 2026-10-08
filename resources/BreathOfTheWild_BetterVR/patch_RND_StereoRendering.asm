@@ -344,13 +344,31 @@ lwz r12, 0(r30)
 lwz r0, 0x104(r12)
 mtctr r0
 mr r3, r30
-; prevent vsync since OpenXR really wants to control the frame timing
-;bctrl ; waitForVsync
+
+; Regulador de bucle cerrado de fotogramas
+bl local_throttleFrameLoop
+
 lwz r0, 0x14(r1)
 lwz r30, 0x08(r1)
 mtlr r0
 lwz r31, 0x0C(r1)
 addi r1, r1, 0x10
+blr
+
+local_throttleFrameLoop:
+stwu r1, -0x10(r1)
+mflr r0
+stw r0, 0x14(r1)
+bl import.coreinit.hook_GetFrameThrottleTicks
+cmpwi r3, 0
+beq exit_local_throttleFrameLoop
+mr r4, r3
+li r3, 0
+bla import.coreinit.OSSleepTicks
+exit_local_throttleFrameLoop:
+lwz r0, 0x14(r1)
+addi r1, r1, 0x10
+mtlr r0
 blr
 
 0x031FA880 = ba custom_sead_GameFramework_procFrame
