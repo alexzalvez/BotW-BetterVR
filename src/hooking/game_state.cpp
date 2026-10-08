@@ -2,6 +2,7 @@
 #include "cemu_hooks.h"
 #include "instance.h"
 #include "rendering/openxr.h"
+#include "rendering/renderer.h"
 #include "utils/game_utils.h"
 
 std::string CemuHooks::s_currentEvent = {};
@@ -169,25 +170,71 @@ bool CemuHooks::IsTitleScreenVisible() {
     return IsScreenVisible(ScreenId::Title_00);
 }
 
-// the Wii U timebase that OSSleepTicks counts in
+// Base de tiempo del temporizador de hardware de Wii U (ticks por segundo)
 constexpr double WiiUTimerTicksPerSecond = 62156250.0;
-constexpr std::chrono::nanoseconds ThrottledFramePeriod = std::chrono::nanoseconds(1'000'000'000 / 60);
+
+// =========================================================================================
+// CONFIGURACIÓN DE CADENCIA VR (VIRTUAL DESKTOP SSW):
+//
+// kCadenceSubOffset:
+//   - Ponlo en 0.1 para sub-cadencia activa (35.9 FPS a 72Hz, 44.9 FPS a 90Hz).
+//     -> Drena la cola de la swapchain para eliminar input lag elástico.
+//   - Ponlo en 0.0 para ratio 1:2 exacto (36.0 FPS a 72Hz, 45.0 FPS a 90Hz).
+//     -> Se apoya en el Phase Lead de 2.0 ms.
+// =========================================================================================
+constexpr double kCadenceSubOffset = 0.1; // Alternar entre 0.1 y 0.0 para contrastar empíricamente
+constexpr int64_t kPhaseLeadNs = 2'000'000; // 2.0 ms de margen fresco (Zero-Queue Depth)
 
 void CemuHooks::hook_GetFrameThrottleTicks(PPCInterpreter_t* hCPU) {
     hCPU->instructionPointer = hCPU->sprNew.LR;
 
-    static std::chrono::steady_clock::time_point s_nextFrameDeadline = {};
-
-    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-    if ((!IsLoadingScreenVisible() && !IsTitleScreenVisible()) || now >= s_nextFrameDeadline) {
-        s_nextFrameDeadline = now + ThrottledFramePeriod;
+    // Durante pantallas de carga y títulos se respeta el comportamiento nativo
+    if (IsLoadingScreenVisible() || IsTitleScreenVisible()) {
         hCPU->gpr[3] = 0;
         return;
     }
 
-    const std::chrono::steady_clock::duration remaining = s_nextFrameDeadline - now;
-    s_nextFrameDeadline += ThrottledFramePeriod;
-    hCPU->gpr[3] = (uint32_t)(std::chrono::duration<double>(remaining).count() * WiiUTimerTicksPerSecond);
+    const uint64_t sswBaseCadenceNs = RND_Renderer::GetSyncTargetPeriodNs();
+    const uint64_t lastWaitNs = RND_Renderer::GetLastWaitFrameTimestampNs();
+
+    if (sswBaseCadenceNs == 0 || lastWaitNs == 0) {
+        hCPU->gpr[3] = 0;
+        return;
+    }
+
+    // Calcular el periodo objetivo según kCadenceSubOffset
+    uint64_t targetPeriodNs = sswBaseCadenceNs;
+    if (kCadenceSubOffset > 0.001) {
+        const double baseHz = 2e9 / static_cast<double>(sswBaseCadenceNs); // Ej: 72.0 Hz
+        const double targetFps = (baseHz * 0.5) - kCadenceSubOffset; // Ej: 36.0 - 0.1 = 35.9 FPS
+        if (targetFps > 10.0) {
+            targetPeriodNs = static_cast<uint64_t>(1e9 / targetFps);
+        }
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const uint64_t nowNs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()
+    ).count());
+
+    static uint64_t s_monotoneDeadlineNs = 0;
+
+    // Plazo absoluto acoplado al visor con el adelanto de fase
+    const uint64_t targetDeadlineNs = lastWaitNs + targetPeriodNs - kPhaseLeadNs;
+
+    // Prevención de micro-ráfagas ante picos transitorios de CPU
+    if (nowNs >= targetDeadlineNs || nowNs >= s_monotoneDeadlineNs) {
+        s_monotoneDeadlineNs = nowNs + targetPeriodNs;
+        hCPU->gpr[3] = 0;
+        return;
+    }
+
+    const uint64_t sleepDurationNs = s_monotoneDeadlineNs - nowNs;
+    s_monotoneDeadlineNs += targetPeriodNs;
+
+    // Conversión de nanosegundos a ticks de hardware de Wii U
+    constexpr double kNanosToWiiUTicks = WiiUTimerTicksPerSecond / 1e9;
+    hCPU->gpr[3] = static_cast<uint32_t>(sleepDurationNs * kNanosToWiiUTicks);
 }
 
 void CemuHooks::initCutsceneDefaultSettings(uint32_t ppc_TableOfCutsceneEventsSettingsOffset) {

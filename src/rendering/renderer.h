@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+
 #include "pch.h"
 #include "d3d12.h"
 #include "openxr.h"
@@ -195,6 +198,13 @@ public:
     double GetLastFrameTimeMs() const { return m_lastFrameTimeMs; }
     double GetPredictedDisplayPeriodMs() const { return m_predictedDisplayPeriodMs; }
     double GetLastOverheadMs() const { return m_lastOverheadMs; }
+
+    // Variables de sincronización cerrada con OpenXR para SSW
+    static inline std::atomic<uint64_t> s_syncTargetDisplayPeriodNs{22'222'222}; // 45 FPS (90 Hz) por defecto
+    static inline std::atomic<uint64_t> s_lastWaitFrameTimestampNs{0};
+
+    static uint64_t GetSyncTargetPeriodNs() { return s_syncTargetDisplayPeriodNs.load(std::memory_order_relaxed); }
+    static uint64_t GetLastWaitFrameTimestampNs() { return s_lastWaitFrameTimestampNs.load(std::memory_order_acquire); }
 
     void On3DColorCopied(OpenXR::EyeSide side, long frameIdx) {
         if (!m_renderFrames[frameIdx].views.has_value() && HasCurrentFrameViewsLatched()) m_renderFrames[frameIdx].views = m_currViews;

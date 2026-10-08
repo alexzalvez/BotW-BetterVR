@@ -157,7 +157,11 @@ void RND_Renderer::StartFrame() {
 
     bool xrSlotReady = false;
     {
-        std::lock_guard<std::mutex> lock(m_framePumpMutex);
+        std::unique_lock<std::mutex> lock(m_framePumpMutex);
+        // Si Cemu llega una fracción de milisegundo antes, esperamos hasta 3 ms con timeout de seguridad
+        if (!m_framePumpSlotReady) {
+            m_framePumpCv.wait_for(lock, std::chrono::milliseconds(3), [this] { return m_framePumpSlotReady; });
+        }
         if (m_framePumpSlotReady) {
             m_frameState = m_pumpedFrameState;
             m_frameStateReceivedAt = m_pumpedFrameStateReceivedAt;
@@ -229,6 +233,16 @@ void RND_Renderer::FramePumpLoop() {
         }
 
         const auto waitEnd = std::chrono::steady_clock::now();
+        const uint64_t waitEndNs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            waitEnd.time_since_epoch()
+        ).count());
+
+        // En SSW de Virtual Desktop, la cadencia es exactamente el doble del intervalo del visor (relación 1:2)
+        if (frameState.predictedDisplayPeriod > 0) {
+            const uint64_t sswCadenceNs = static_cast<uint64_t>(frameState.predictedDisplayPeriod) * 2ULL;
+            s_syncTargetDisplayPeriodNs.store(sswCadenceNs, std::memory_order_relaxed);
+            s_lastWaitFrameTimestampNs.store(waitEndNs, std::memory_order_release);
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_framePumpMutex);
