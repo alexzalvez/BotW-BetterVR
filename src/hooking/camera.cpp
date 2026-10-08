@@ -1061,40 +1061,77 @@ void CemuHooks::hook_CheckIfCameraCanSeePos(PPCInterpreter_t* hCPU) {
     BEVec3 center;
     readMemory(posPtr, &center);
 
-    Frustum frustum;
+    struct CachedFrustums {
+        BESeadLookAtCamera camera = {};
+        float nearClip = -1.0f;
+        float farClip = -1.0f;
+        bool isFlat = false;
+        Frustum flatFrustum;
+        Frustum vrFrustums[2];
+        bool hasVRFrustum[2] = { false, false };
+        bool valid = false;
+    };
+    static thread_local CachedFrustums s_cachedFrustums;
 
-    if (UseFlatCameraPresentation()) {
-        XrFovf flatCameraFov = RenderUtils::CreateSymmetricFov(s_flatCameraFovYRadians.load(std::memory_order_relaxed), RenderUtils::CapturedImageAspectRatio);
-        glm::mat4 view = glm::mat4(camera.mtx.getLEMatrix());
-        glm::mat4 proj = glm::transpose(RenderUtils::CalculateProjectionMatrix(nearClip, farClip, flatCameraFov));
-        frustum.update(proj * view);
-        hCPU->gpr[3] = frustum.checkSphere(center.getLE(), radius) ? 1 : 0;
+    const bool isFlat = UseFlatCameraPresentation();
+    
+    // Comparación segura con memcmp para garantizar compilación limpia
+    const bool cameraMatches = s_cachedFrustums.valid 
+        && (memcmp(&s_cachedFrustums.camera, &camera, sizeof(BESeadLookAtCamera)) == 0);
+
+    const bool cacheMatches = cameraMatches
+        && s_cachedFrustums.nearClip == nearClip
+        && s_cachedFrustums.farClip == farClip
+        && s_cachedFrustums.isFlat == isFlat;
+
+    if (!cacheMatches) {
+        s_cachedFrustums.camera = camera;
+        s_cachedFrustums.nearClip = nearClip;
+        s_cachedFrustums.farClip = farClip;
+        s_cachedFrustums.isFlat = isFlat;
+        s_cachedFrustums.hasVRFrustum[0] = false;
+        s_cachedFrustums.hasVRFrustum[1] = false;
+
+        if (isFlat) {
+            XrFovf flatCameraFov = RenderUtils::CreateSymmetricFov(s_flatCameraFovYRadians.load(std::memory_order_relaxed), RenderUtils::CapturedImageAspectRatio);
+            glm::mat4 view = glm::mat4(camera.mtx.getLEMatrix());
+            glm::mat4 proj = glm::transpose(RenderUtils::CalculateProjectionMatrix(nearClip, farClip, flatCameraFov));
+            s_cachedFrustums.flatFrustum.update(proj * view);
+        }
+        else {
+            for (int i = 0; i < 2; ++i) {
+                OpenXR::EyeSide side = (i == 0) ? EyeSide::LEFT : EyeSide::RIGHT;
+                if (auto fovOpt = TryGetRenderFOV(side)) {
+                    auto [pos, rot] = CalculateVRWorldPose(camera, side);
+                    // Retrasar la cámara para compensar el punto de vista en tercera persona
+                    pos += rot * glm::vec3(0.0f, 0.0f, 1.0f);
+
+                    glm::mat4 view = glm::inverse(glm::translate(glm::mat4(1.0f), pos) * glm::mat4_cast(rot));
+                    glm::mat4 proj = glm::transpose(RenderUtils::CalculateProjectionMatrix(nearClip, farClip, fovOpt.value()));
+                    glm::mat4 vp = proj * view;
+
+                    s_cachedFrustums.vrFrustums[i].update(vp);
+                    s_cachedFrustums.hasVRFrustum[i] = true;
+                }
+            }
+        }
+        s_cachedFrustums.valid = true;
+    }
+
+    if (s_cachedFrustums.isFlat) {
+        hCPU->gpr[3] = s_cachedFrustums.flatFrustum.checkSphere(center.getLE(), radius) ? 1 : 0;
         return;
     }
 
     bool visible = false;
-
     for (int i = 0; i < 2; ++i) {
-        OpenXR::EyeSide side = (i == 0) ? EyeSide::LEFT : EyeSide::RIGHT;
-        if (auto fovOpt = TryGetRenderFOV(side)) {
-            auto [pos, rot] = CalculateVRWorldPose(camera, side);
-
-            // pull the camera backwards a bit to account for it being a third-person game that encompassed a bigger area
-            pos += rot * glm::vec3(0.0f, 0.0f, 1.0f);
-
-            glm::mat4 view = glm::inverse(glm::translate(glm::mat4(1.0f), pos) * glm::mat4_cast(rot));
-            glm::mat4 proj = glm::transpose(RenderUtils::CalculateProjectionMatrix(nearClip, farClip, fovOpt.value()));
-            glm::mat4 vp = proj * view;
-
-            frustum.update(vp);
-            if (frustum.checkSphere(center.getLE(), radius)) {
+        if (s_cachedFrustums.hasVRFrustum[i]) {
+            if (s_cachedFrustums.vrFrustums[i].checkSphere(center.getLE(), radius)) {
                 visible = true;
                 break;
             }
         }
     }
-
-    //Log::print<PPC>("Checking visibility of {} (rad = {}, near = {}, far = {}): {}", center, radius, nearClip, farClip, visible ? "visible" : "invisible");
 
     hCPU->gpr[3] = visible ? 1 : 0;
 }
