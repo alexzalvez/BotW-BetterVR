@@ -23,9 +23,9 @@ void CemuHooks::hook_BeginCameraSide(PPCInterpreter_t* hCPU) {
 
     OpenXR::EyeSide side = hCPU->gpr[0] == 0 ? OpenXR::EyeSide::LEFT : OpenXR::EyeSide::RIGHT;
 
-    Log::print<RENDERING>("");
-    Log::print<RENDERING>("===============================================================================");
-    Log::print<RENDERING>("{0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0}", side);
+    // Log::print<RENDERING>("");
+    // Log::print<RENDERING>("===============================================================================");
+    // Log::print<RENDERING>("{0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0}", side);
 }
 
 bool CemuHooks::UseMonoFrameBufferTemporarilyDuringMenusOrPictures() {
@@ -767,7 +767,7 @@ void CemuHooks::hook_GetRenderCamera(PPCInterpreter_t* hCPU) {
     BESeadLookAtCamera camera = {};
     readMemory(cameraIn, &camera);
 
-    Log::print<RENDERING>("[{}] Getting render camera", side);
+    // Log::print<RENDERING>("[{}] Getting render camera", side);
     if (UseFlatCameraPresentation()) {
         glm::mat4 flatCameraView = glm::mat4(camera.mtx.getLEMatrix());
         s_lastCameraMtx = glm::inverse(flatCameraView);
@@ -904,7 +904,7 @@ void CemuHooks::hook_ModifyLightPrePassProjectionMatrix(PPCInterpreter_t* hCPU) 
         return;
     }
 
-    Log::print<RENDERING>("[{}] Modify light prepass projection", side);
+    // Log::print<RENDERING>("[{}] Modify light prepass projection", side);
 
 
     XrFovf currFOV = currFovOpt.value();
@@ -1000,7 +1000,7 @@ void CemuHooks::hook_ModifyProjectionUsingCamera(PPCInterpreter_t* hCPU) {
         return;
     }
 
-    Log::print<RENDERING>("[{}] ModifyProjectionUsingCamera: {}", side, perspectiveProjection);
+    // Log::print<RENDERING>("[{}] ModifyProjectionUsingCamera: {}", side, perspectiveProjection);
 
     XrFovf currFOV = currFovOpt.value();
     auto newProjection = RenderUtils::CalculateFOVAndOffset(currFOV);
