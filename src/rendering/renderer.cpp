@@ -908,12 +908,28 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
     // =========================================================================
     const bool isModMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
     
-// Detección limpia y determinista: solo pantallas de menú activas mientras el jugador está en partida
+// Detección unificada y estricta: menús de pausa, mapas, inventarios, tiendas y diálogos
     const bool isGameMenuOpen = inputState.shared.in_game && (
         CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
-        CemuHooks::IsScreenOpen(ScreenId::SeekPadMenuBG_00) ||
-        CemuHooks::IsScreenOpen(ScreenId::ShopBG_00) ||
-        CemuHooks::IsScreenOpen(ScreenId::MessageDialog)
+        CemuHooks::IsScreenVisible(ScreenId::PauseMenu_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::PauseMenuBG_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::PauseMenuRecipe_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::PauseMenuMantan_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::PauseMenuEiketsu_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::SeekPadMenuBG_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppMap_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppMapDungeon_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppAlbum_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppPictureBook_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppTool_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::AppHome_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::ShopBG_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::MessageDialog) ||
+        CemuHooks::IsScreenVisible(ScreenId::OptionWindow_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::SystemWindow_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::SystemWindow_01) ||
+        CemuHooks::IsScreenVisible(ScreenId::ControllerWindow_00) ||
+        CemuHooks::IsScreenVisible(ScreenId::GameOver_00)
     );
 
     // Histéresis de 8 frames para evitar parpadeos en cambios de pestañas (L / R)
