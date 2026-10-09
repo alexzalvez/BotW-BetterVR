@@ -79,9 +79,9 @@ lfs f5, magic3DDepthValue_leftSide@l(r7)
 ; log clearing action
 li r5, 0
 mr r8, r3
-lis r3, str_printClear3DBuffer_left@ha
-addi r3, r3, str_printClear3DBuffer_left@l
-bla import.coreinit.hook_OSReportToConsole
+; lis r3, str_printClear3DBuffer_left@ha
+; addi r3, r3, str_printClear3DBuffer_left@l
+; bla import.coreinit.hook_OSReportToConsole
 mr r3, r8
 b continueTo3DClear
 
@@ -97,9 +97,9 @@ lfs f5, magic3DDepthValue_rightSide@l(r7)
 ; log clearing action
 li r5, 1
 mr r8, r3
-lis r3, str_printClear3DBuffer_right@ha
-addi r3, r3, str_printClear3DBuffer_right@l
-bla import.coreinit.hook_OSReportToConsole
+; lis r3, str_printClear3DBuffer_right@ha
+; addi r3, r3, str_printClear3DBuffer_right@l
+; bla import.coreinit.hook_OSReportToConsole
 mr r3, r8
 b continueTo3DClear
 
