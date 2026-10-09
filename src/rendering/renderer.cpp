@@ -908,8 +908,13 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
     // =========================================================================
     const bool isModMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
     
-    // Detección unificada: IsShowingMenu() detecta pausa de cámara e IsAnyGameMenuOrModalOpen() las pantallas en memoria
-    const bool isGameMenuOpen = CemuHooks::IsShowingMenu() || CemuHooks::IsAnyGameMenuOrModalOpen();
+// Detección limpia y determinista: solo pantallas de menú activas mientras el jugador está en partida
+    const bool isGameMenuOpen = inputState.shared.in_game && (
+        CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
+        CemuHooks::IsScreenOpen(ScreenId::SeekPadMenuBG_00) ||
+        CemuHooks::IsScreenOpen(ScreenId::ShopBG_00) ||
+        CemuHooks::IsScreenOpen(ScreenId::MessageDialog)
+    );
 
     // Histéresis de 8 frames para evitar parpadeos en cambios de pestañas (L / R)
     constexpr uint32_t MENU_DEBOUNCE_FRAMES = 8;
