@@ -819,7 +819,7 @@ void CemuHooks::hook_GetRenderProjection(PPCInterpreter_t* hCPU) {
     BESeadPerspectiveProjection perspectiveProjection = {};
     readMemory(projectionIn, &perspectiveProjection);
 
-    Log::print<RENDERING>("[{}] Render Proj. (LR: {:08X}): {}", side, hCPU->sprNew.LR, perspectiveProjection);
+    // Log::print<RENDERING>("[{}] Render Proj. (LR: {:08X}): {}", side, hCPU->sprNew.LR, perspectiveProjection);
 
     if (perspectiveProjection.zFar == 10000.0f) {
         return;
