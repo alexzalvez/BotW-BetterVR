@@ -170,6 +170,53 @@ bool CemuHooks::IsTitleScreenVisible() {
     return IsScreenVisible(ScreenId::Title_00);
 }
 
+bool CemuHooks::IsAnyGameMenuOrModalOpen() {
+    // 1. Pantallas de inicio, carga o cinemáticas / presentaciones planas
+    if (IsTitleScreenVisible() || IsLoadingScreenVisible() || UseFlatCameraPresentation()) {
+        return true;
+    }
+
+    // 2. Pantallas de pausa, inventarios y sub-menús de BotW
+    // Comprobamos visibilidad real en memoria + fallback de PauseMenuInfo
+    if (IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
+        IsScreenVisible(ScreenId::PauseMenu_00) ||
+        IsScreenVisible(ScreenId::PauseMenuBG_00) ||
+        IsScreenVisible(ScreenId::PauseMenuRecipe_00) ||
+        IsScreenVisible(ScreenId::PauseMenuMantan_00) ||
+        IsScreenVisible(ScreenId::PauseMenuEiketsu_00)) {
+        return true;
+    }
+
+    // 3. Piedra Sheikah (Mapa de Hyrule, Mazmorras, Álbum, Enciclopedia, Módulos)
+    if (IsScreenVisible(ScreenId::SeekPadMenuBG_00) ||
+        IsScreenVisible(ScreenId::AppMap_00) ||
+        IsScreenVisible(ScreenId::AppMapDungeon_00) ||
+        IsScreenVisible(ScreenId::AppAlbum_00) ||
+        IsScreenVisible(ScreenId::AppPictureBook_00) ||
+        IsScreenVisible(ScreenId::AppTool_00) ||
+        IsScreenVisible(ScreenId::AppHome_00)) {
+        return true;
+    }
+
+    // 4. Tiendas, diálogos de NPCs y ventanas modales de sistema
+    if (IsScreenVisible(ScreenId::ShopBG_00) ||
+        IsScreenVisible(ScreenId::MessageDialog) ||
+        IsScreenVisible(ScreenId::OptionWindow_00) ||
+        IsScreenVisible(ScreenId::SystemWindow_00) ||
+        IsScreenVisible(ScreenId::SystemWindow_01) ||
+        IsScreenVisible(ScreenId::ControllerWindow_00) ||
+        IsScreenVisible(ScreenId::GameOver_00)) {
+        return true;
+    }
+
+    // 5. Selector rápido de cruceta (MainShortCut_00) cuando está visible en pantalla
+    if (IsScreenVisible(ScreenId::MainShortCut_00)) {
+        return true;
+    }
+
+    return false;
+}
+
 // Base de tiempo del temporizador de hardware de Wii U (ticks por segundo)
 constexpr double WiiUTimerTicksPerSecond = 62156250.0;
 

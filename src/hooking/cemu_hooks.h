@@ -203,6 +203,7 @@ public:
     static bool IsScreenOpen(ScreenId screen);
     static bool IsScreenVisible(ScreenId screen);
     static bool IsAnyFadeScreenVisible();
+    static bool IsAnyGameMenuOrModalOpen();
     static bool IsLoadingScreenVisible();
     static bool IsTitleScreenVisible();
     static glm::fvec3 GetAppliedRoomscaleHeadPosition();
