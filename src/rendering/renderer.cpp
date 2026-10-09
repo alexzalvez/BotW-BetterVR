@@ -892,8 +892,7 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
     const XrPosef& leftPose = poses->at(OpenXR::EyeSide::LEFT).pose;
     const XrPosef& rightPose = poses->at(OpenXR::EyeSide::RIGHT).pose;
     glm::vec3 headPosition = (ToGLM(leftPose.position) + ToGLM(rightPose.position)) * 0.5f;
-    glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightPose.orientation), 0.5f);
-
+glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightPose.orientation), 0.5f);
     const float DISTANCE = GetSettings().hudDistance;
     constexpr float LERP_SPEED = 0.05f;
 
@@ -902,14 +901,17 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
     auto inputState = VRManager::instance().XR->m_input.load();
     const bool wasBowAimingSet = IsBowAimingActive();
     const bool isBowAiming = wasBowAimingSet && inputState.shared.in_game;
+    const bool isAimingMode = isBowAiming || CemuHooks::IsScopeModeActive() || CemuHooks::IsCameraFinderModeActive();
 
-// =========================================================================
+    // =========================================================================
     // 1. WATCHDOG IDEMPOTENTE DE MENÚS (ImGui del Mod y Nativos de BotW)
     // =========================================================================
     const bool isModMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
-    const bool isGameMenuOpen = CemuHooks::IsAnyGameMenuOrModalOpen();
+    
+    // Detección unificada: IsShowingMenu() detecta pausa de cámara e IsAnyGameMenuOrModalOpen() las pantallas en memoria
+    const bool isGameMenuOpen = CemuHooks::IsShowingMenu() || CemuHooks::IsAnyGameMenuOrModalOpen();
 
-    // Histéresis de 8 frames para cambio de pestañas de BotW (L / R)
+    // Histéresis de 8 frames para evitar parpadeos en cambios de pestañas (L / R)
     constexpr uint32_t MENU_DEBOUNCE_FRAMES = 8;
     static uint32_t s_gameMenuCloseFrames = 0;
     static bool s_isGameMenuSessionActive = false;
@@ -924,17 +926,13 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
         }
     }
 
-    // Poses fijas ancladas en el espacio del mundo (STAGE_SPACE)
+    // Poses fijas para anclaje inmutable en el espacio de la habitación (STAGE_SPACE)
     static XrPosef s_latchedModMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
     static XrPosef s_latchedGameMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
-    static XrPosef s_latchedHudPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
-    static glm::quat s_lastHudYaw = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    static bool s_hasLatchedHud = false;
-
     static bool s_wasModMenuOpen = false;
     static bool s_wasGameMenuSessionActive = false;
 
-    // Recentrado opcional de emergencia por teclado (tecla F9)
+    // Recentrado opcional manual por teclado (tecla F9)
     static bool s_f9WasDown = false;
     const bool f9IsDown = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
     const bool recenterRequested = f9IsDown && !s_f9WasDown;
@@ -943,38 +941,33 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
     // =========================================================================
     // 2. JERARQUÍA ESTRICTA DE RENDERIZADO 2D (EXPERIENCIA UX VR)
     // =========================================================================
-
     if (isModMenuOpen) {
-        // PRIORIDAD 1: Menú ImGui del Mod VR (100% World-Locked)
+        // DOMINIO 1: Menú ImGui del Mod VR (100% World-Locked con auto-recentrado)
         if (!s_wasModMenuOpen || recenterRequested) {
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
             glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
-
             s_latchedModMenuPose.position = ToXR(targetPosition);
             s_latchedModMenuPose.orientation = ToXR(yawOnly);
         }
         layerPose = s_latchedModMenuPose;
-        s_hasLatchedHud = false; // Al salir del menú, el HUD se reorientará frente a ti
     }
     else if (s_isGameMenuSessionActive) {
-        // PRIORIDAD 2: Menús nativos de BotW (Pausa, Mapa, Inventarios, Tiendas)
-        // Se congela en el fotograma 1 exacto de apertura frente al usuario
+        // DOMINIO 2: Menús nativos de BotW (Pausa, Mapa, Inventarios, Tiendas, Diálogos)
+        // Se auto-recentra en el fotograma 1 de apertura frente a donde mires
         if (!s_wasGameMenuSessionActive || recenterRequested) {
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
             glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
-
             s_latchedGameMenuPose.position = ToXR(targetPosition);
             s_latchedGameMenuPose.orientation = ToXR(yawOnly);
         }
-        // Inmutable en coordenadas de la habitación: cero movimiento al girar o mover la cabeza
+        // Inmutable durante toda la navegación: cero contramovimiento al mover o rotar la cabeza
         layerPose = s_latchedGameMenuPose;
-        s_hasLatchedHud = false; // Al cerrar el menú, el HUD se re-anclará donde quedaste mirando
     }
-    else if (isBowAiming) {
-        // PRIORIDAD 3: Modo Apuntado Activo (Arco, Bombas, Runas)
-        // La retícula y el HUD siguen la mirada para apuntar con precisión
+    else if (isAimingMode) {
+        // DOMINIO 3: Modo Apuntado Activo (Arco, Bombas, Catalejo, Cámara Sheikah)
+        // Head-Locked rígido 1:1 sin slerp ni inercia para máxima precisión
         glm::vec3 forwardDirection = headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
         glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
         glm::vec3 rightDirection = glm::normalize(glm::cross(forwardDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
@@ -983,30 +976,19 @@ std::vector<XrCompositionLayerQuad> RND_Renderer::Layer2D::FinishRendering(XrTim
 
         layerPose.orientation = ToXR(userFacingOrientation);
         layerPose.position = ToXR(targetPosition);
-        s_hasLatchedHud = false; // Al terminar de disparar, el HUD se re-anclará a la pose final
     }
     else {
-        // PRIORIDAD 4: Gameplay normal (Corazones, Mini-mapa, Estamina) -> 100% WORLD-LOCKED
-        // Flota en el mundo virtual. Solo se actualiza si el jugador rota el cuerpo más de 40° o con F9
-        auto [_, currentYaw] = RenderUtils::swingTwistY(headOrientation);
-        glm::vec3 currentForward = currentYaw * glm::vec3(0.0f, 0.0f, -1.0f);
-        glm::vec3 lastForward = s_lastHudYaw * glm::vec3(0.0f, 0.0f, -1.0f);
-        float dotProduct = glm::dot(currentForward, lastForward);
+        // DOMINIO 4: Gameplay normal (Corazones, Barra de resistencia, Mini-mapa)
+        // Lazy Follow suave: flota ergonómicamente y te acompaña si juegas de pie o sentado
+        m_currentOrientation = glm::slerp(m_currentOrientation, headOrientation, LERP_SPEED);
+        glm::vec3 forwardDirection = m_currentOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
+        glm::vec3 rightDirection = glm::normalize(glm::cross(forwardDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
+        glm::vec3 upDirection = glm::cross(rightDirection, forwardDirection);
+        glm::quat userFacingOrientation = glm::quatLookAt(forwardDirection, upDirection);
 
-        // cos(40°) ≈ 0.7660444f. Si dotProduct < 0.7660444f, la desviación supera los 40°.
-        constexpr float COS_DEADBAND_ANGLE = 0.7660444f;
-
-        if (!s_hasLatchedHud || recenterRequested || dotProduct < COS_DEADBAND_ANGLE) {
-            s_lastHudYaw = currentYaw;
-            glm::vec3 targetPosition = headPosition + (DISTANCE * currentForward);
-
-            s_latchedHudPose.position = ToXR(targetPosition);
-            s_latchedHudPose.orientation = ToXR(currentYaw);
-            s_hasLatchedHud = true;
-        }
-
-        // El HUD permanece completamente anclado en el espacio de la habitación
-        layerPose = s_latchedHudPose;
+        layerPose.orientation = ToXR(userFacingOrientation);
+        layerPose.position = ToXR(targetPosition);
     }
 
     s_wasModMenuOpen = isModMenuOpen;
