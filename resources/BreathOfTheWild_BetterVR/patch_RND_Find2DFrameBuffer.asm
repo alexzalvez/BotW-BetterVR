@@ -51,9 +51,9 @@ lfs f2, magic2DColorValue@l+0x4(r3)
 lfs f3, magic2DColorValue@l+0x8(r3)
 
 ; log clearing action
-lis r3, str_printClear2DColorBuffer_right@ha
-addi r3, r3, str_printClear2DColorBuffer_right@l
-bl import.coreinit.hook_OSReportToConsole
+; lis r3, str_printClear2DColorBuffer_right@ha
+; addi r3, r3, str_printClear2DColorBuffer_right@l
+; bl import.coreinit.hook_OSReportToConsole
 b continueTo2DClear
 
 rightEye2DValues:
@@ -63,9 +63,9 @@ lfs f3, magic2DColorValue@l+0x4(r3)
 lfs f2, magic2DColorValue@l+0x8(r3)
 
 ; log clearing action
-lis r3, str_printClear2DColorBuffer_right@ha
-addi r3, r3, str_printClear2DColorBuffer_right@l
-bl import.coreinit.hook_OSReportToConsole
+; lis r3, str_printClear2DColorBuffer_right@ha
+; addi r3, r3, str_printClear2DColorBuffer_right@l
+; bl import.coreinit.hook_OSReportToConsole
 b continueTo2DClear
 
 continueTo2DClear:

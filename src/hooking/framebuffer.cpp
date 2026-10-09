@@ -105,11 +105,11 @@ void VkDeviceOverrides::CmdClearColorImage(const vkroots::VkCommandBufferDispatc
         const long frameIdx = pColor->float32[3] < 0.5f ? 0 : 1;
         checkAssert(captureIdx == 0 || captureIdx == 2, "Invalid capture index!");
 
-        Log::print<RENDERING>("[{}] Clearing color image for {} layer for {} side", frameIdx, captureIdx == 0 ? "3D" : "2D", side == OpenXR::EyeSide::LEFT ? "left" : "right");
+        // Log::print<RENDERING>("[{}] Clearing color image for {} layer for {} side", frameIdx, captureIdx == 0 ? "3D" : "2D", side == OpenXR::EyeSide::LEFT ? "left" : "right");
 
         auto* renderer = VRManager::instance().XR->GetRenderer();
         if (!renderer) {
-            Log::print<RENDERING>("Renderer is not initialized yet!");
+            // Log::print<RENDERING>("Renderer is not initialized yet!");
             return pDispatch.CmdClearColorImage(commandBuffer, image, imageLayout, pColor, rangeCount, pRanges);
         }
         auto& layer3D = renderer->m_layer3D;
@@ -208,7 +208,7 @@ void VkDeviceOverrides::CmdClearColorImage(const vkroots::VkCommandBufferDispatc
             }
 
             if (image != s_curr3DColorImage) {
-                Log::print<RENDERING>("Color image is not the same as the current 3D color image! ({} != {})", (void*)image, (void*)s_curr3DColorImage);
+                // Log::print<RENDERING>("Color image is not the same as the current 3D color image! ({} != {})", (void*)image, (void*)s_curr3DColorImage);
                 return skip3DColorCapture(!renderer->IsRendering3D(frameIdx));
             }
 
@@ -219,12 +219,12 @@ void VkDeviceOverrides::CmdClearColorImage(const vkroots::VkCommandBufferDispatc
             }
             else if (!frame.IsStereoRecord() || frame.activeStereoGeneration == 0) {
                 frame.AddIssue(RND_Renderer::CaptureIssue_UnexpectedSequence);
-                Log::print<RENDERING>("[{}] Ignoring right-eye 3D color before stereo generation start", frameIdx);
+                // Log::print<RENDERING>("[{}] Ignoring right-eye 3D color before stereo generation start", frameIdx);
                 return skip3DColorCapture(!renderer->IsRendering3D(frameIdx));
             }
 
             if (frame.HasFatalIssue()) {
-                Log::print<RENDERING>("[{}] Ignoring 3D color capture because the stereo slot is already invalid", frameIdx);
+                // Log::print<RENDERING>("[{}] Ignoring 3D color capture because the stereo slot is already invalid", frameIdx);
                 return skip3DColorCapture(!renderer->IsRendering3D(frameIdx));
             }
 
@@ -346,7 +346,7 @@ void VkDeviceOverrides::CmdClearDepthStencilImage(const vkroots::VkCommandBuffer
             return;
         }
 
-        Log::print<RENDERING>("[{}] Clearing depth image for 3D layer for {} side", frameCounter, side == OpenXR::EyeSide::LEFT ? "left" : "right");
+        // Log::print<RENDERING>("[{}] Clearing depth image for 3D layer for {} side", frameCounter, side == OpenXR::EyeSide::LEFT ? "left" : "right");
 
         // change source image to GENERAL layout
         VulkanUtils::TransitionLayout(commandBuffer, image, imageLayout, VK_IMAGE_LAYOUT_GENERAL);
@@ -372,20 +372,20 @@ void VkDeviceOverrides::CmdClearDepthStencilImage(const vkroots::VkCommandBuffer
             }
 
             if (image != s_curr3DDepthImage) {
-                Log::print<RENDERING>("Depth image is not the same as the current 3D depth image! ({} != {})", (void*)image, (void*)s_curr3DDepthImage);
+                // Log::print<RENDERING>("Depth image is not the same as the current 3D depth image! ({} != {})", (void*)image, (void*)s_curr3DDepthImage);
                 returnToLayout();
                 return;
             }
 
             if (!frame.IsStereoRecord() || frame.activeStereoGeneration == 0) {
                 frame.AddIssue(RND_Renderer::CaptureIssue_UnexpectedSequence);
-                Log::print<RENDERING>("[{}] Ignoring {} depth capture before stereo generation start", frameCounter, side == EyeSide::LEFT ? "left-eye" : "right-eye");
+                // Log::print<RENDERING>("[{}] Ignoring {} depth capture before stereo generation start", frameCounter, side == EyeSide::LEFT ? "left-eye" : "right-eye");
                 returnToLayout();
                 return;
             }
 
             if (frame.HasFatalIssue()) {
-                Log::print<RENDERING>("[{}] Ignoring 3D depth capture because the stereo slot is already invalid", frameCounter);
+                // Log::print<RENDERING>("[{}] Ignoring 3D depth capture because the stereo slot is already invalid", frameCounter);
                 returnToLayout();
                 return;
             }
