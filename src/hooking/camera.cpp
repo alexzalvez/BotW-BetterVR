@@ -465,7 +465,7 @@ void CemuHooks::hook_UpdateCameraForGameplay(PPCInterpreter_t* hCPU) {
     glm::fvec3 oldCameraUp = actCam.finalCamMtx.up.getLE();
     float oldCameraDistance = glm::distance(oldCameraPosition, oldCameraTarget);
 
-    Log::print<RENDERING>("Getting gameplay camera (pos = {})", oldCameraPosition);
+    // Log::print<RENDERING>("Getting gameplay camera (pos = {})", oldCameraPosition);
 
     if (IsFirstPerson()) {
         // remove verticality from the camera position to avoid pitch changes that aren't from the VR headset
@@ -965,7 +965,7 @@ void CemuHooks::hook_ModifyProjectionUsingCamera(PPCInterpreter_t* hCPU) {
         BESeadLookAtCamera camera = {};
         readMemory(cameraPtr, &camera);
 
-        Log::print<RENDERING>("[{}] ModifyProjectionUsingCamera at {:08X}: {}", side, cameraPtr, camera);
+        // Log::print<RENDERING>("[{}] ModifyProjectionUsingCamera at {:08X}: {}", side, cameraPtr, camera);
 
         // the divine beast outside rendering actually use a separate camera that is at a different position
         // so don't use generic camera position, and instead recalculate it
@@ -1166,9 +1166,9 @@ void CemuHooks::hook_EndCameraSide(PPCInterpreter_t* hCPU) {
 
     OpenXR::EyeSide side = hCPU->gpr[3] == 0 ? OpenXR::EyeSide::LEFT : OpenXR::EyeSide::RIGHT;
 
-    Log::print<RENDERING>("{0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0}", side);
-    Log::print<RENDERING>("===============================================================================");
-    Log::print<RENDERING>("");
+    // Log::print<RENDERING>("{0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0}", side);
+    // Log::print<RENDERING>("===============================================================================");
+    // Log::print<RENDERING>("");
 }
 
 void CemuHooks::hook_UseCameraDistance(PPCInterpreter_t* hCPU) {
