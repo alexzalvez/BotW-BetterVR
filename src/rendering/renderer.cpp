@@ -903,51 +903,22 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
     const bool isBowAiming = wasBowAimingSet && inputState.shared.in_game;
     const bool isAimingMode = isBowAiming || CemuHooks::IsScopeModeActive() || CemuHooks::IsCameraFinderModeActive();
 
-    // =========================================================================
-    // 1. WATCHDOG IDEMPOTENTE DE MENÚS (ImGui del Mod y Nativos de BotW)
+// =========================================================================
+    // JERARQUÍA LIMPIA Y DETERMINISTA DE 3 ESTADOS (UX VR)
     // =========================================================================
     const bool isModMenuOpen = VRManager::instance().XR->m_isMenuOpen.load(std::memory_order_relaxed);
-    
-// Watchdog determinista de menús: combina pausa de cámara, pantallas de info y diálogos/tiendas, excluyendo arranque/carga
-    const bool isGameMenuOpen = !CemuHooks::IsTitleScreenVisible() &&
-                                !CemuHooks::IsLoadingScreenVisible() &&
-                                (CemuHooks::IsScreenOpen(ScreenId::PauseMenuInfo_00) ||
-                                 CemuHooks::IsScreenOpen(ScreenId::ShopBG_00) ||
-                                 CemuHooks::IsScreenOpen(ScreenId::MessageDialog) ||
-                                 !CemuHooks::IsInGame());
 
-    // Histéresis de 8 frames para evitar parpadeos en cambios de pestañas (L / R)
-    constexpr uint32_t MENU_DEBOUNCE_FRAMES = 8;
-    static uint32_t s_gameMenuCloseFrames = 0;
-    static bool s_isGameMenuSessionActive = false;
-
-    if (isGameMenuOpen) {
-        s_gameMenuCloseFrames = 0;
-        s_isGameMenuSessionActive = true;
-    } else if (s_isGameMenuSessionActive) {
-        if (++s_gameMenuCloseFrames >= MENU_DEBOUNCE_FRAMES) {
-            s_isGameMenuSessionActive = false;
-            s_gameMenuCloseFrames = 0;
-        }
-    }
-
-    // Poses fijas para anclaje inmutable en el espacio de la habitación (STAGE_SPACE)
-    static XrPosef s_latchedModMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
-    static XrPosef s_latchedGameMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
-    static bool s_wasModMenuOpen = false;
-    static bool s_wasGameMenuSessionActive = false;
-
-    // Recentrado opcional manual por teclado (tecla F9)
+    // Recentrado opcional manual por teclado (tecla F9) para el menú del mod
     static bool s_f9WasDown = false;
     const bool f9IsDown = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
     const bool recenterRequested = f9IsDown && !s_f9WasDown;
     s_f9WasDown = f9IsDown;
 
-    // =========================================================================
-    // 2. JERARQUÍA ESTRICTA DE RENDERIZADO 2D (EXPERIENCIA UX VR)
-    // =========================================================================
+    static XrPosef s_latchedModMenuPose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
+    static bool s_wasModMenuOpen = false;
+
     if (isModMenuOpen) {
-        // DOMINIO 1: Menú ImGui del Mod VR (100% World-Locked con auto-recentrado)
+        // ESTADO 1: Menú ImGui del Mod VR -> World-Locked absoluto en la habitación
         if (!s_wasModMenuOpen || recenterRequested) {
             auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
             glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
@@ -957,22 +928,8 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
         }
         layerPose = s_latchedModMenuPose;
     }
-    else if (s_isGameMenuSessionActive) {
-        // DOMINIO 2: Menús nativos de BotW (Pausa, Mapa, Inventarios, Tiendas, Diálogos)
-        // Se auto-recentra en el fotograma 1 de apertura frente a donde mires
-        if (!s_wasGameMenuSessionActive || recenterRequested) {
-            auto [_, yawOnly] = RenderUtils::swingTwistY(headOrientation);
-            glm::vec3 forwardDirection = yawOnly * glm::vec3(0.0f, 0.0f, -1.0f);
-            glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
-            s_latchedGameMenuPose.position = ToXR(targetPosition);
-            s_latchedGameMenuPose.orientation = ToXR(yawOnly);
-        }
-        // Inmutable durante toda la navegación: cero contramovimiento al mover o rotar la cabeza
-        layerPose = s_latchedGameMenuPose;
-    }
     else if (isAimingMode) {
-        // DOMINIO 3: Modo Apuntado Activo (Arco, Bombas, Catalejo, Cámara Sheikah)
-        // Head-Locked rígido 1:1 sin slerp ni inercia para máxima precisión
+        // ESTADO 2: Apuntado (Arco, Telescopio, Cámara Sheikah) -> Head-Locked 1:1 estricto
         glm::vec3 forwardDirection = headOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
         glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
         glm::vec3 rightDirection = glm::normalize(glm::cross(forwardDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
@@ -983,8 +940,7 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
         layerPose.position = ToXR(targetPosition);
     }
     else {
-        // DOMINIO 4: Gameplay normal (Corazones, Barra de resistencia, Mini-mapa)
-        // Lazy Follow suave: flota ergonómicamente y te acompaña si juegas de pie o sentado
+        // ESTADO 3: Gameplay, Corazones, Mini-mapa, Menús de pausa, Inventarios y Diálogos -> Lazy Follow suave
         m_currentOrientation = glm::slerp(m_currentOrientation, headOrientation, LERP_SPEED);
         glm::vec3 forwardDirection = m_currentOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
         glm::vec3 targetPosition = headPosition + (DISTANCE * forwardDirection);
@@ -997,7 +953,6 @@ glm::quat headOrientation = glm::slerp(ToGLM(leftPose.orientation), ToGLM(rightP
     }
 
     s_wasModMenuOpen = isModMenuOpen;
-    s_wasGameMenuSessionActive = s_isGameMenuSessionActive;
 
     //const float aspectRatio = (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Width / (float)this->m_textures[frameIdx]->d3d12GetTexture()->GetDesc().Height;
     const float aspectRatio = 16.0f / 9.0f;
