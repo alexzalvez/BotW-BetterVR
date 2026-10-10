@@ -319,9 +319,13 @@ void Log::submit(LogType type, std::string_view message) {
 }
 
 Log::Log() {
+#ifdef _DEBUG
     AllocConsole();
     SetConsoleTitleA("BetterVR Debugging Console");
     s_consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+#else
+    s_consoleHandle = NULL;
+#endif
 
     LARGE_INTEGER timeLI;
     QueryPerformanceFrequency(&timeLI);
@@ -348,8 +352,9 @@ Log::~Log() {
         }
         s_consoleHandle = NULL;
     }
-
+#ifdef _DEBUG
     FreeConsole();
+#endif
 }
 
 void Log::OnInstanceCreated() {
