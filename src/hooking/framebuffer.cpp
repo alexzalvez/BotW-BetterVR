@@ -182,12 +182,13 @@ void VkDeviceOverrides::CmdClearColorImage(const vkroots::VkCommandBufferDispatc
 
         // 3D layer - color texture for 3D rendering
         if (captureIdx == 0) {
-            auto skip3DColorCapture = [&](bool disableAlpha) -> void {
+            auto skip3DColorCapture = [&](bool /*disableAlpha*/) -> void {
                 returnToLayout();
                 if (useMonoCapture) {
                     return;
                 }
-                clearFramebuffer(disableAlpha);
+                // Limpiar siempre con alpha = 0.0f para evitar fogonazos negros (aspecto de ventana cmd) en el visor
+                clearFramebuffer(false);
             };
 
             // check if the color texture has the appropriate texture format

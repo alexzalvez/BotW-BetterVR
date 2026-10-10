@@ -902,10 +902,14 @@ void processInputPrevention(OpenXR::GameState& gameState, std::chrono::steady_cl
         gameState.prevent_grab_inputs = false;
 }
 
-void processModMenuInput(std::atomic_bool& isMenuOpen, OpenXR::InputState& inputs, VPADStatus& vpadInputs, RND_Renderer::ImGuiOverlay* imguiOverlay, XrActionStateVector2f& leftStickSource, XrActionStateVector2f& rightStickSource)
-{
+void processModMenuInput(std::atomic_bool& isMenuOpen, OpenXR::InputState& inputs, VPADStatus& vpadInputs, RND_Renderer::ImGuiOverlay* imguiOverlay, XrActionStateVector2f& leftStickSource, XrActionStateVector2f& rightStickSource){
+    static auto s_lastMenuToggleTime = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
     if (inputs.shared.modMenuState.lastEvent == ButtonState::Event::LongPress && inputs.shared.modMenuState.longFired_actedUpon) {
-        isMenuOpen = !isMenuOpen;
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastMenuToggleTime).count() > 500) {
+            isMenuOpen = !isMenuOpen;
+            s_lastMenuToggleTime = now;
+        }
         inputs.shared.modMenuState.longFired_actedUpon = false;
     }
 
